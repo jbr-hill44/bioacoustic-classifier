@@ -1,20 +1,18 @@
 from data_processing.wav_processor import WavProcessor
 from pathlib import Path
 
-
 CURRENT_FILE = Path(__file__).resolve()
-PROJECT_ROOT = CURRENT_FILE.parents[1]  # Adjust this depending on how deep your script is
+PROJECT_ROOT = CURRENT_FILE.parents[1]
 
-# Now use the absolute path to your data file
-file_path = PROJECT_ROOT / 'data' / 'raw' / '20240611_063000.WAV'
-processor = WavProcessor(file_path, chunk_duration=3)
+raw_files = PROJECT_ROOT / "data" / "raw"
+chunk_path = PROJECT_ROOT / "data" / "processed" / "chunks_3s"
+spec_path = PROJECT_ROOT / "data" / "processed" / "spectrogram_3s"
 
-# Step 2: Split and save chunks
-chunk_output_dir = PROJECT_ROOT / 'data' / 'processed' / 'chunks_3s'
-processor.save_chunks(chunk_output_dir)
+raw_files = list(raw_files.glob("*.WAV"))
 
-# Step 3: Create and save spectrograms of those chunks
-spectrogram_output_dir = PROJECT_ROOT / 'data' / 'processed' / 'spectrogram_3s'
-processor.save_spectrogram(chunk_output_dir, spectrogram_output_dir)
+for file in raw_files:
+    processor = WavProcessor(file, chunk_duration=3)
+    processor.save_chunks(chunk_path)
+    processor.save_spectrogram(chunk_path, spec_path)
 
 
