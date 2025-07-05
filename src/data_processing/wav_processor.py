@@ -38,16 +38,13 @@ class WavProcessor:
         for i, filename in enumerate(wav_files):
             chunk_path = os.path.join(chunk_dir, filename)
             chunk_sample_rate, chunk_data = wavfile.read(chunk_path)
-
             spec_basename = os.path.splitext(os.path.basename(filename))[0]
             spec_out_filename = f"{spec_basename}.jpeg"
             spec_output_path = os.path.join(spec_output_dir, spec_out_filename)
             plt.figure(figsize=(10, 4))
             plt.specgram(chunk_data, Fs=chunk_sample_rate, NFFT=1024, noverlap=512, cmap='viridis')
-            plt.xlabel("Time (s)")
-            plt.ylabel("Frequency (Hz)")
-            plt.colorbar(label="Intensity (dB)")
-            plt.title("Spectrogram")
-            plt.tight_layout()
+            plt.axis("off")
+            plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            plt.show()
             plt.savefig(spec_output_path)
             plt.close()
