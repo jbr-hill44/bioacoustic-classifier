@@ -1,5 +1,7 @@
 import os.path
 from os.path import splitext, join as pjoin
+
+import numpy as np
 from scipy.io import wavfile
 import matplotlib.pyplot as plt
 
@@ -30,6 +32,20 @@ class WavProcessor:
             out_path = os.path.join(output_dir, out_filename)
             wavfile.write(out_path, self.sample_rate, chunk)
             print(f"Saved: {out_filename}")
+
+    def save_npy_array(self, chunk_dir, npy_output_dir):
+        os.makedirs(npy_output_dir, exist_ok=True)
+        wav_files = [f for f in os.listdir(chunk_dir) if f.lower().endswith(".wav")]
+
+        for i, filename in enumerate(wav_files):
+            chunk_path = os.path.join(chunk_dir, filename)
+            chunk_sample_rate, chunk_data = wavfile.read(chunk_path)
+            if chunk_data.dtype == np.int16:
+                chunk_data = chunk_data.astype(np.float32) / 32768.0
+            npy_basename = os.path.splitext(os.path.basename(filename))[0]
+            npy_out_filename = f"{npy_basename}.npy"
+            npy_output_path = os.path.join(npy_output_dir, npy_out_filename)
+            np.save(npy_output_path,chunk_data)
 
     def save_spectrogram(self, chunk_dir, spec_output_dir):
         os.makedirs(spec_output_dir, exist_ok=True)
