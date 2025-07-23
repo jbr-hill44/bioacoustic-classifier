@@ -40,12 +40,14 @@ def get_label_for_chunk(annotations, candidate_chunk_file, chunk_size=3):
     # Create two new columns containing the start and end points of all labels in seconds
     annotations["start_sec"] = annotations["start_time"].apply(timestamp_in_secs)
     annotations["end_sec"] = annotations["end_time"].apply(timestamp_in_secs)
-
+    # Get seconds and timestamp of candidate chunk
     candidate_secs, candidate_ts = chunk_to_time(candidate_chunk_file)
-
+    # Define start and end time of candidate chunk
     c_start = candidate_secs
     c_end = candidate_secs + (chunk_size - 1)  # Inclusive of all ms e.g. 000,000 to 002,999 not 003,000
-
+    # Filter annotations accordingly
+    # To capture chunks that fall within a labelled area and those that span > 1,
+    # label start time must be <= candidate end time, and annotation end time must be >= candidate start time.
     labels_df = annotations[(annotations['start_sec'] <= c_end) & (annotations['end_sec'] >= c_start)]
 
     if labels_df.empty:
