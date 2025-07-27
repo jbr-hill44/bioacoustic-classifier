@@ -1,6 +1,4 @@
 import numpy as np
-import os.path
-import seaborn as sns
 import librosa
 from librosa.filters import mel
 from scipy.io import wavfile as wav
