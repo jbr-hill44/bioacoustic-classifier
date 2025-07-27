@@ -1,25 +1,29 @@
 from pathlib import Path
+import os
 from os.path import splitext, basename
 from datetime import timedelta
 import pandas as pd
+from scipy.io import wavfile
+import re
 
 chunk_path = Path(__file__).resolve().parents[2] / "data" / "processed" / "chunks_3s"
 wav_files = sorted(list(chunk_path.glob("*.wav")))
 print(f"Found {len(wav_files)} .wav files in {chunk_path}")
 
 if len(wav_files) > 1:
-    example_file = wav_files[100]
+    example_file = wav_files[7]
     print(f"Example file: {example_file}")
 else:
     raise ValueError("Not enough .wav files found in the directory.")
 
-annotations_df = pd.read_csv(chunk_path.parents[1] / "annotations" / "annotations.csv")
+annotations_df = pd.read_csv(chunk_path.parents[1] / "annotations" / "annotations_clean.csv")
 
 # A function is needed that takes wav file chunk and returns where in the recording it occurs
 def chunk_to_time(file):
     # chunk is an integer from 000 to n where n is length of the original file, in seconds, divided by 3 (chunk size)
     # e.g. if file was 1 hour long, chunk can range from 000 to 1200 (3600 / 3)
     chunk_name = splitext(basename(file))[0]
+    # all files named in format 'xxxx_chunk_yyy.wav'
     start_pos = chunk_name.find("k_") + 2
     chunk = chunk_name[start_pos:len(chunk_name)]
     if chunk == "000":
@@ -53,8 +57,32 @@ def get_label_for_chunk(annotations, candidate_chunk_file, chunk_size=3):
     if labels_df.empty:
         return None
     else:
-        return candidate_ts, labels_df[['file', 'start_time', 'end_time', 'label']].to_dict(orient="records")
+        return labels_df[['file', 'start_time', 'end_time', 'label']].to_dict(orient="records")
 
 
 test = get_label_for_chunk(annotations_df, example_file)
 print(test)
+label_dir = chunk_path.parents[0] / "labelled_chunks_3s"
+
+def qFunc(x):
+    if re.search('/20240611_050000_', str(x)):
+        return True
+    else:
+        return False
+
+wav_filter = filter(qFunc, wav_files)
+wav_subset = list(wav_filter)
+
+for wav in wav_files:
+    rate, data = wavfile.read(wav)
+    # Define directory to save to
+    os.makedirs(label_dir, exist_ok=True)
+    # get labels, this returns list of dictionaries
+    label_dict = get_label_for_chunk(annotations_df, wav)
+    # returns just the labels in CHRONOLOGICAL ORDER
+    labels = [d['label'] for d in label_dict]
+    label_str = '_'.join(labels)  # join() is an instance method, needs instance.join i.e. 'some_string'.join()
+    label_filename = f"{splitext(basename(wav))[0]}_{label_str}.wav"
+    label_path = os.path.join(label_dir, label_filename)
+    wavfile.write(label_path, rate, data)
+
