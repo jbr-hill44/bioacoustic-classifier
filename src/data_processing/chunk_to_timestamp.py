@@ -6,12 +6,12 @@ import pandas as pd
 from scipy.io import wavfile
 import re
 
-chunk_path = Path(__file__).resolve().parents[2] / "data" / "processed" / "chunks_3s"
+chunk_path = Path().resolve() / "data" / "processed" / "chunks_3s"
 wav_files = sorted(list(chunk_path.glob("*.wav")))
 print(f"Found {len(wav_files)} .wav files in {chunk_path}")
 
 if len(wav_files) > 1:
-    example_file = wav_files[7]
+    example_file = wav_files[1011]
     print(f"Example file: {example_file}")
 else:
     raise ValueError("Not enough .wav files found in the directory.")
@@ -59,9 +59,9 @@ def get_label_for_chunk(annotations, candidate_chunk_file, chunk_size=3):
     else:
         return labels_df[['file', 'start_time', 'end_time', 'label']].to_dict(orient="records")
 
-
 test = get_label_for_chunk(annotations_df, example_file)
 print(test)
+
 label_dir = chunk_path.parents[0] / "labelled_chunks_3s"
 
 def qFunc(x):
@@ -73,16 +73,32 @@ def qFunc(x):
 wav_filter = filter(qFunc, wav_files)
 wav_subset = list(wav_filter)
 
-for wav in wav_files:
+for wav in wav_subset:
     rate, data = wavfile.read(wav)
     # Define directory to save to
     os.makedirs(label_dir, exist_ok=True)
     # get labels, this returns list of dictionaries
     label_dict = get_label_for_chunk(annotations_df, wav)
+    if not label_dict:
+        break
     # returns just the labels in CHRONOLOGICAL ORDER
     labels = [d['label'] for d in label_dict]
     label_str = '_'.join(labels)  # join() is an instance method, needs instance.join i.e. 'some_string'.join()
     label_filename = f"{splitext(basename(wav))[0]}_{label_str}.wav"
     label_path = os.path.join(label_dir, label_filename)
     wavfile.write(label_path, rate, data)
+    print(f'labelled {label_path}')
+
+# For the labelled wav files we have just produced, we want to see how many are multi-labelled.
+labelled_files = list(label_dir.glob('*.wav'))
+
+def multiLabel(x):
+    if len(re.split(r'_', splitext(basename(x))[0])) > 6:
+        return True
+    else:
+        return False
+
+
+label_filter = filter(multiLabel, labelled_files)
+multiple_labels = list(label_filter)
 

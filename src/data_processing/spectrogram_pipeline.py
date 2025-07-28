@@ -1,7 +1,6 @@
 import numpy as np
 import librosa
 from librosa.filters import mel
-from scipy.io import wavfile as wav
 from scipy.signal import butter, sosfiltfilt, spectrogram, windows, lfilter
 from pathlib import Path
 
@@ -71,3 +70,5 @@ class spectrogramPipeline:
         else:
             nc_spec = np.clip(nc_spec, 0, 1)
         return nc_spec
+
+    def save_spectrogram(selfself, spec):

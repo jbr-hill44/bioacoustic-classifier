@@ -13,6 +13,5 @@ raw_files = list(raw_files.glob("*.WAV"))
 for file in raw_files:
     processor = WavProcessor(file, chunk_duration=3)
     processor.save_chunks(chunk_path)
-    processor.save_spectrogram(chunk_path, spec_path)
 
 
