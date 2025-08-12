@@ -2,6 +2,7 @@ import numpy as np
 import librosa
 from librosa.filters import mel
 from scipy.signal import butter, sosfiltfilt, spectrogram, windows, lfilter
+from PIL import Image
 from pathlib import Path
 
 class spectrogramPipeline:
@@ -71,4 +72,12 @@ class spectrogramPipeline:
             nc_spec = np.clip(nc_spec, 0, 1)
         return nc_spec
 
-    def save_spectrogram(selfself, spec):
+    def save_spectrogram_image(self, spec, out_path):
+        # Scale to 0–255 and convert to uint8
+        spec_uint8 = (spec * 255).astype(np.uint8)
+
+        # Create image from array
+        img = Image.fromarray(spec_uint8, mode='L')  # 'L' for grayscale
+
+        # Save image
+        img.save(out_path)

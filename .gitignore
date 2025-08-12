@@ -3,3 +3,5 @@
 *.jpeg
 *.csv
 *.npy
+*.png
+*.keras
