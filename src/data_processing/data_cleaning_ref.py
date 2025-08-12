@@ -23,7 +23,8 @@ annotations_copy['label'] = annotations_copy['label'].replace({
     'unknown_bird_1': 'yellowhammer',
     'unknown_bird_6': 'wren',
     'unknown_bird_8': 'wren',
-    'background': 'background_noise'
+    'background': 'background_noise',
+    'unknown_bird_7': 'pheasant'
 })
 
 annotations_copy['label'] = annotations_copy['label'].replace({
