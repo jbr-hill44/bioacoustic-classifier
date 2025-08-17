@@ -121,6 +121,63 @@ def select_kcenter_batch(embeddings, already_selected_local, b, metric='euclidea
     return np.array(batch_local, dtype=int)
 
 
+def run_al_experiment(L_init, U_init, rounds, b, seed=1929):
+    rng = np.random.default_rng(seed)
 
+    # containers
+    results = {
+        'round': [],
+        'method': [],
+        'n_sampled': [],
+        'val_auc_roc': [],
+        'test_auc_roc': []
+    }
+
+    # fixed eval sets
+    val_ds = make_eval_ds(filepaths, labels, val_idx, batch_size=64)
+    test_ds = make_eval_ds(filepaths, labels, test_idx, batch_size=64)
+    # two tracks: active and random
+    for method in ['active', 'random']:
+        L = L_init.copy()
+        U = U_init.copy()
+        # fresh model per method (fair comparison)
+        model = define_cnn(mle.classes_)
+        # round 0: train on initial L
+        hist = create_training_set(model, L, val_idx)
+        # evaluate
+        val_metrics = model.evaluate(val_ds, verbose=0, return_dict=True)
+        test_metrics = model.evaluate(test_ds, verbose=0, return_dict=True)
+        results['round'].append(0)
+        results['method'].append(method)
+        results['n_sampled'].append(len(L))
+        results['val_auc_roc'].append(val_metrics['auc'])
+        results['test_auc_roc'].append(test_metrics['auc'])
+
+        for r in range(1, rounds+1):
+            # select b new labels from U
+            if method == 'active':
+                # get embeddings for U
+                E = get_embeddings(model, U)
+                # already_selected indices relative to U (none, we’re selecting new each round)
+                selected_local = select_kcenter_batch(E, already_selected_local=[], b=b)
+                newly_selected = U[selected_local]
+            else:
+                newly_selected = rng.choice(U, size=b, replace=False)
+            # "oracle": use ground-truth labels
+            L = np.concatenate([L, newly_selected])
+            U = np.setdiff1d(U, newly_selected, assume_unique=False)
+
+            # retrain (or continue training) on enlarged L
+            hist = create_training_set(model, L, val_idx, epochs=8)
+            val_metrics = model.evaluate(val_ds, verbose=0, return_dict=True)
+            test_metrics = model.evaluate(test_ds, verbose=0, return_dict=True)
+            results['round'].append(r)
+            results['method'].append(method)
+            results['n_sampled'].append(len(L))
+            results['val_auc_roc'].append(val_metrics['auc'])
+            results['test_auc_roc'].append(test_metrics['auc'])
+    # to DataFrame for plotting/stats
+    out = pd.DataFrame(results)
+    return out
 
 
