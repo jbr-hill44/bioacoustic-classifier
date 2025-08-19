@@ -30,6 +30,15 @@ class kCenterGreedy:
     self.n_obs = self.X.shape[0]
     self.already_selected = []
 
+  def flatten_X(self):
+    X = self.X
+    # ensure 2-D [n_samples, n_features]
+    if X.ndim == 1:
+      return X.reshape(-1, 1)
+    if X.ndim > 2:
+      return X.reshape(X.shape[0], -1)
+    return X
+
   def update_distances(self, cluster_centers, only_new=True, reset_dist=False):
     """Update min distances given cluster centers.
 
