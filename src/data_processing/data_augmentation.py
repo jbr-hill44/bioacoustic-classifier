@@ -11,7 +11,7 @@ def upsample_rare(train_labels, train_idx):
     most_freq = class_freqs[present].max() if present.any() else 1
 
     upsample_factor = np.ones_like(class_freqs, dtype=float)
-    upsample_factor[present] = np.clip(np.ceil(most_freq / class_freqs[present]).astype(int), 1, 10)
+    upsample_factor[present] = np.clip(np.ceil(most_freq / class_freqs[present]).astype(int), 1, 5)
     upsample_factor = upsample_factor.astype(int)
 
     classes_upsampled = yt * upsample_factor
