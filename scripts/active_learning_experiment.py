@@ -7,8 +7,8 @@ tf.keras.backend.clear_session()
 from tensorflow import keras
 import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import average_precision_score
+from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 import src.data_processing.data_augmentation as daug
 from importlib import reload
 import src.models.CNN as CNN
@@ -22,12 +22,10 @@ df['split_labels'] = df['label'].str.split('_and_')
 
 # Get arrays
 filepaths = df['filepath'].values
-
 # Initialise and fit multi-label encoder
 mle = MultiLabelBinarizer()
 multi_labels = mle.fit_transform(df['split_labels'])
 labels = multi_labels
-
 cnn = CNN.define_cnn(mle.classes_)
 assert cnn.output_shape[-1] == len(mle.classes_)
 def make_train_ds(filepaths, labels, indices, flags, batch_size=32, seed=1929):
@@ -57,8 +55,11 @@ def make_eval_ds(filepaths, labels, indices, batch_size):
 # This is so images themselves do not need duplicating
 # but instead augmentation will be applied when relevant index occurs
 idx = np.arange(len(filepaths))
-train_idx, test_val_idx = train_test_split(idx, test_size=0.3, random_state=1929, shuffle=True)
-val_idx, test_idx = train_test_split(test_val_idx, test_size=0.8, random_state=1929, shuffle=True)
+msss = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=1929)
+rest_idx, test_idx = next(msss.split(idx, labels))
+train_idx, val_idx = next(msss.split(rest_idx, labels[rest_idx]))
+# train_idx, test_val_idx = iterative_train_test_split(idx, test_size=0.3, random_state=1929, shuffle=True)
+# val_idx, test_idx = iterative_train_test_split(test_val_idx, test_size=0.8, random_state=1929, shuffle=True)
 
 rng = np.random.default_rng(1929)
 m0 = 400  # images in initial training round
@@ -70,9 +71,9 @@ U0 = np.setdiff1d(train_idx, L0, assume_unique=False)  # remaining 'unlabelled' 
 
 def create_training_set(model, train_idx, val_idx, epochs=10, batch_size=32):
     # Upsample only on training set
-    epoch_idx, epoch_flag = daug.upsample_rare(train_labels=labels, train_idx=train_idx)
+    # epoch_idx, epoch_flag = daug.upsample_rare(train_labels=labels, train_idx=train_idx)
     # These handle processing of images
-    train_ds = make_train_ds(filepaths, labels, epoch_idx, epoch_flag, batch_size=batch_size)
+    train_ds = make_eval_ds(filepaths, labels, train_idx, batch_size=batch_size) # change to make_train_ds if you want to use augmentation
     val_ds = make_eval_ds(filepaths, labels, val_idx, batch_size=batch_size)
 
     # y_val = labels[val_idx]
@@ -80,9 +81,6 @@ def create_training_set(model, train_idx, val_idx, epochs=10, batch_size=32):
 
     # Compile model
     num_classes = labels.shape[1]
-    roc = keras.metrics.AUC(
-        name='auc_roc', curve='ROC', multi_label=True, num_labels=num_classes
-    )
     pr = keras.metrics.AUC(
         name='auc_pr', curve='PR', multi_label=True, num_labels=num_classes
     )
@@ -90,7 +88,7 @@ def create_training_set(model, train_idx, val_idx, epochs=10, batch_size=32):
     model.compile(
         optimizer='adam',
         loss=keras.losses.BinaryCrossentropy(from_logits=False),
-        metrics=[roc, pr]
+        metrics=[pr]
     )
     # Train model on training data
     callbacks = keras.callbacks.EarlyStopping(
@@ -112,6 +110,87 @@ def make_input_ds(filepaths, indices, batch_size=64):
                 num_parallel_calls=tf.data.AUTOTUNE)
     ds = ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     return ds
+
+epoch_idx, epoch_flag = daug.upsample_rare(train_labels=labels, train_idx=train_idx)
+train_ds = make_train_ds(filepaths, labels, epoch_idx, epoch_flag, batch_size=32)
+model = CNN.define_cnn(mle.classes_)
+model_all = create_training_set(model=model,
+                                train_idx=train_idx,
+                                val_idx=val_idx,
+                                epochs=20)
+
+
+auc_pr = model_all.history['auc_pr']
+val_auc_pr = model_all.history['val_auc_pr']
+epochs = range(1, len(auc_pr) + 1)
+
+plt.plot(epochs, auc_pr, 'bo', label="Training AUC-PR")
+plt.plot(epochs, val_auc_pr, 'b', label="Validation AUC-PR")
+plt.title("Training and Validation AUC-PR")
+plt.legend()
+plt.show()
+
+y_true = labels[val_idx].astype('float32')
+y_pred = model.predict(make_input_ds(filepaths, val_idx), verbose=0)
+
+# Restrict to classes with both pos & neg in val (optional but safer)
+valid = (y_true.sum(axis=0) > 0) & ((y_true == 0).sum(axis=0) > 0)
+yt, yp = y_true[:, valid], y_pred[:, valid]
+
+# PR-AUCs
+ap_macro = average_precision_score(yt, yp, average='macro')
+ap_weighted = average_precision_score(yt, yp, average='weighted')  # weights by class support
+ap_micro = average_precision_score(yt, yp, average='micro')
+print(f"AP macro={ap_macro:.3f} | AP weighted={ap_weighted:.3f} | AP micro={ap_micro:.3f}")
+
+# Hamming loss metrics
+threshold = 0.4  # tune this
+yp_binary = (yp >= threshold).astype(int)
+from sklearn.metrics import hamming_loss
+hamming = hamming_loss(yt, yp_binary)
+print(f"Hamming Loss={hamming:.3f}")
+
+
+import numpy as np
+from sklearn.metrics import average_precision_score
+
+# yt, yp from your last cell (restricted to valid classes)
+nC = yt.shape[1]
+
+per_ap = np.zeros(nC)
+pos_pred_rate_05 = np.zeros(nC)   # fraction predicted positive at 0.5
+mean_prob = np.zeros(nC)          # average predicted probability
+best_f1 = np.zeros(nC)
+best_thr = np.zeros(nC)
+
+for c in range(nC):
+    y, p = yt[:, c], yp[:, c]  # take all rows, for each column (class)
+    per_ap[c] = average_precision_score(y, p)
+    mean_prob[c] = float(p.mean())
+
+    # default 0.5 threshold: how often does model predict positive?
+    pos_pred_rate_05[c] = float((p >= 0.5).mean())
+
+# Map these back to class names you evaluated (the 'valid' subset)
+valid_classes = np.array(list(mle.classes_))[valid]
+summary = np.c_[per_ap, mean_prob, pos_pred_rate_05, best_f1, best_thr]
+idx_sorted = np.argsort(-per_ap)  # best first
+for i in idx_sorted[:nC]:
+    print(f"{valid_classes[i]:30s} AP={per_ap[i]:.3f}  mean_p={mean_prob[i]:.3f}  "
+          f"pos@0.5={pos_pred_rate_05[i]:.3f}  bestF1={best_f1[i]:.3f}@thr={best_thr[i]:.2f}")
+
+
+hamming = np.zeros(nC)
+for c in range(nC):
+    y, p = yt[:, c], yp[:, c]  # take all rows, for each column (class)
+    hamming[c] = hamming_loss(y, (p >= threshold).astype(int))
+
+# Map these back to class names you evaluated (the 'valid' subset)
+valid_classes = np.array(list(mle.classes_))[valid]
+summary = np.c_[hamming]
+for i in idx_sorted[:nC]:
+    print(f"{valid_classes[i]:30s}" 
+          f"Hamming={hamming[i]}")
 
 def get_embeddings(model, pool_idx, batch_size=64):
     pool_idx = np.asarray(pool_idx, dtype=int)
@@ -239,22 +318,3 @@ def run_al_experiment(L_init, U_init, rounds, b, seed=1929):
 
 
 
-epoch_idx, epoch_flag = daug.upsample_rare(train_labels=labels, train_idx=train_idx)
-train_ds = make_train_ds(filepaths, labels, epoch_idx, epoch_flag, batch_size=32)
-model = CNN.define_cnn(mle.classes_)
-model_all = create_training_set(model=model,
-                                train_idx=train_idx,
-                                val_idx=val_idx,
-                                epochs=20)
-
-
-loss = model_all.history["loss"]
-auc_roc = model_all.history["auc_roc"]
-val_auc_roc = model_all.history['val_auc_roc']
-epochs = range(1, len(loss) + 1)
-
-plt.plot(epochs, auc_roc, "bo", label="Training AUC-ROC")
-plt.plot(epochs, val_auc_roc, "b", label="Validation AUC-ROC")
-plt.title("Training and validation AUC-ROC")
-plt.legend()
-plt.show()
