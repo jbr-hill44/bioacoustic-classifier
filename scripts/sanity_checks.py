@@ -115,4 +115,22 @@ print("sklearn val PR-AUC:",  average_precision_score(y_true, y_pred))
 print("sklearn val ROC-AUC:", roc_auc_score(y_true, y_pred))
 
 
-common_classes =
+
+import os
+import pathlib
+root = pathlib.Path.cwd()  # '/Users/jameshill/PycharmProjects/bioacoustic-classifier'
+folder = root / "data" / "annotations" / "raw annotations"
+folder_files = list(folder.glob('*'))
+filename = os.path.basename(folder_files[1])
+file_column = f"{str.split(filename, '.')[0]}.WAV"
+
+def annotations_to_csv(file):
+
+test = pd.read_csv(f"{str(folder)}/{filename}", sep="\t")
+
+test = test[['Begin Time (s)', 'End Time (s)', 'Annotation']]
+test['file'] = file_column
+test['start_sec'] = np.floor(test['Begin Time (s)']).astype(int)
+test['end_sec'] = np.floor(test['End Time (s)']).astype(int)
+test['label'] = test['Annotation']
+test = test[['file', 'start_sec', 'end_sec', 'label']]
