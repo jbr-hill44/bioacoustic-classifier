@@ -131,4 +131,6 @@ new_path1 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/p
 new_path2 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_867_unknown_bird_11_and_unknown_bird_12.wav')
 old_path1.rename(new_path1)
 old_path2.rename(new_path2)
-
+old_path3 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_892_unknown_bird_15_13.wav')
+new_path3 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_892_unknown_bird_15_and_unknown_bird_13.wav')
+old_path3.rename(new_path3)
