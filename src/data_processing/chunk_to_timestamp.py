@@ -8,19 +8,19 @@ import re
 
 # Define what we need
 # Location of 3s chunks
-chunk_path = Path().resolve() / "data" / "processed" / "chunks_3s"
+chunk_path = Path().resolve().parents[1] / "data" / "processed" / "chunks_3s"
+#chunk_path = Path.cwd() / "data" / "processed" / "chunks_3s"
 # get files into lis
 wav_files = sorted(list(chunk_path.glob("*.wav")))
 # annotations taken from recording
 annotations_df = pd.read_csv(chunk_path.parents[1] / "annotations" / "annotations_clean.csv")
 # define a directory for the labels
 label_dir = chunk_path.parents[0] / "labelled_chunks_3s"
-# add columns needed
-annotations_df["start_sec"] = annotations_df["start_time"].apply(timestamp_in_secs)
-annotations_df["end_sec"] = annotations_df["end_time"].apply(timestamp_in_secs)
 # filter function for only those chunks that have been labelled
 def qFunc(x):
     if re.search('/20240611_050000_', str(x)):
+        return True
+    elif re.search('/20240612_050000_', str(x)):
         return True
     else:
         return False
@@ -64,13 +64,14 @@ def timestamp_in_secs(tstmp):
 def get_label_for_chunk(annotations, candidate_chunk_file, chunk_size=3):
     # Get seconds and timestamp of candidate chunk
     candidate_secs, candidate_ts = chunk_to_time(candidate_chunk_file)
+    name_root = f'{os.path.splitext(os.path.basename(candidate_chunk_file))[0].split('_chunk_')[0]}.WAV'
     # Define start and end time of candidate chunk
     c_start = candidate_secs
     c_end = candidate_secs + (chunk_size - 1)  # Inclusive of all ms e.g. 000,000 to 002,999 not 003,000
     # Filter annotations accordingly
     # To capture chunks that fall within a labelled area and those that span > 1,
     # label start time must be <= candidate end time, and annotation end time must be >= candidate start time.
-    labels_df = annotations[(annotations['start_sec'] <= c_end) & (annotations['end_sec'] >= c_start)]
+    labels_df = annotations[(annotations['file'] == name_root) & (annotations['start_sec'] <= c_end) & (annotations['end_sec'] >= c_start)]
 
     if labels_df.empty:
         return None
@@ -78,8 +79,11 @@ def get_label_for_chunk(annotations, candidate_chunk_file, chunk_size=3):
         return labels_df[['file', 'start_time', 'end_time', 'label']].to_dict(orient="records")
 
 def clean_strings(labels, label_filename):
+    special_case = re.compile(r'^unknown_bird_\d+_and_unknown_bird_\d+$')
     # remove repeats
     for lab in labels:
+        if special_case.fullmatch(label_filename):
+            continue
         if len(re.findall(rf'({lab})', label_filename)) > 1:
             label_filename = re.sub(rf'(_and_{lab})', '', string=label_filename, count=1)
     # normalise
@@ -117,12 +121,14 @@ def label_wavs(wav_file, label_dir, annotations):
 for wav in wav_subset:
     label_wavs(wav_file=wav, label_dir=label_dir, annotations=annotations_df)
 
-# For the labelled wav files we have just produced, we want to see how many are multi-labelled.
-labelled_files = list(label_dir.glob('*.wav'))
-
-
-
-
-
-
+# Quick and dirty fixes because I am done with regex for now
+old_path = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_271_eurasian_skylark_2_and_unknown_bird_2.wav')
+new_path = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_271_eurasian_skylark_and_unknown_bird_2.wav')
+old_path.rename(new_path)
+old_path1 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_865_unknown_bird_11_12.wav')
+old_path2 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_867_unknown_bird_12_13.wav')
+new_path1 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_865_unknown_bird_11_and_unknown_bird_12.wav')
+new_path2 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_867_unknown_bird_11_and_unknown_bird_12.wav')
+old_path1.rename(new_path1)
+old_path2.rename(new_path2)
 
