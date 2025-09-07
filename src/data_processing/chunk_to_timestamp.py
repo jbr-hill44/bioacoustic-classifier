@@ -9,7 +9,7 @@ import re
 # Define what we need
 # Location of 3s chunks
 chunk_path = Path().resolve() / "data" / "processed" / "chunks_3s"
-# get files into list
+# get files into lis
 wav_files = sorted(list(chunk_path.glob("*.wav")))
 # annotations taken from recording
 annotations_df = pd.read_csv(chunk_path.parents[1] / "annotations" / "annotations_clean.csv")
