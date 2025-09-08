@@ -85,7 +85,8 @@ def clean_strings(labels, label_filename):
         if special_case.fullmatch(label_filename):
             continue
         if len(re.findall(rf'({lab})', label_filename)) > 1:
-            label_filename = re.sub(rf'(_and_{lab})', '', string=label_filename, count=1)
+            while len(re.findall(rf'({lab})', label_filename)) > 1:
+                label_filename = re.sub(rf'(_and_{lab})', '', string=label_filename, count=1)
     # normalise
     match = re.search(r'([0-9]{8}_[0-9]{6}_chunk_[0-9]+_)(.*?)(_and_)(.*?)(.wav)$', label_filename)
     if match:
