@@ -41,3 +41,30 @@ for wav in labelled_wav_files:
     print(f'Successfully saved {filename}')
 
 labels_and_filenames.to_csv(os.path.join(data_path, 'spectrogram_labels.csv'), index=False)
+
+
+# Altering for some unlabelled data
+unlabelled_wav_path = PROJECT_ROOT / "data" / "processed" / "chunks_3s"
+# Location to save spectrograms to
+unlabelled_spec_path = PROJECT_ROOT / "data" / "processed" / "spectrogram_3s" / "unlabelled"
+# Ensure output directories exist
+unlabelled_spec_path.mkdir(parents=True, exist_ok=True)
+labelled_root = {
+    "_".join(Path(f).name.split("_")[0:4]) + ".wav"
+    for f in labelled_wav_files
+}
+unlabelled_wav_files = list(unlabelled_wav_path.glob("*.wav"))
+unlabelled_wav_files = [p for p in unlabelled_wav_files if p.name not in labelled_root]
+
+for unwav in unlabelled_wav_files:
+    wav_proc = WavProcessor(unwav)
+    spec_proc = spectrogramPipeline(wav_proc)
+
+    mel_spec = spec_proc.fft_and_mel(win_len=512)
+    scaled_spec = spec_proc.scaling(spec=mel_spec, rate=wav_proc.sample_rate, hop_length=384)
+    final_spec = spec_proc.clip_and_normalise(scaled_spec)
+    filename = splitext(basename(unwav))[0]
+    print(f'Successfully created {filename}')
+    output_path = unlabelled_spec_path / f"{filename}.png"
+    spec_proc.save_spectrogram_image(final_spec, output_path)
+    print(f'Successfully saved {filename}')

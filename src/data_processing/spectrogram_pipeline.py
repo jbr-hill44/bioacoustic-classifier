@@ -73,6 +73,10 @@ class spectrogramPipeline:
         return nc_spec
 
     def save_spectrogram_image(self, spec, out_path):
+
+        # Flip to place low frequencies at the bottom
+        spec = np.flipud(spec)
+
         # Scale to 0–255 and convert to uint8
         spec_uint8 = (spec * 255).astype(np.uint8)
 
