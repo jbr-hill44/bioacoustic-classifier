@@ -41,4 +41,3 @@ for wav in labelled_wav_files:
     print(f'Successfully saved {filename}')
 
 labels_and_filenames.to_csv(os.path.join(data_path, 'spectrogram_labels.csv'), index=False)
-
