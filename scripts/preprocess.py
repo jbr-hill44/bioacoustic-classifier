@@ -6,7 +6,6 @@ PROJECT_ROOT = CURRENT_FILE.parents[1]
 
 raw_files = PROJECT_ROOT / "data" / "raw"
 chunk_path = PROJECT_ROOT / "data" / "processed" / "chunks_3s"
-spec_path = PROJECT_ROOT / "data" / "processed" / "spectrogram_3s"
 
 raw_files = list(raw_files.glob("*.WAV"))
 
