@@ -55,7 +55,7 @@ def make_eval_ds(filepaths, labels, indices, batch_size):
 # This is so images themselves do not need duplicating
 # but instead augmentation will be applied when relevant index occurs
 idx = np.arange(len(filepaths))
-msss = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=1929)
+msss = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=243, random_state=1929)
 rest_idx, test_idx = next(msss.split(idx, labels))
 train_idx, val_idx = next(msss.split(rest_idx, labels[rest_idx]))
 # train_idx, test_val_idx = iterative_train_test_split(idx, test_size=0.3, random_state=1929, shuffle=True)
@@ -63,8 +63,8 @@ train_idx, val_idx = next(msss.split(rest_idx, labels[rest_idx]))
 
 rng = np.random.default_rng(1929)
 m0 = 400  # images in initial training round
-b = 100  # samples per batch
-rounds = 8  # number of rounds
+b = 80  # samples per batch
+rounds = 10  # number of rounds
 
 L0 = rng.choice(train_idx, m0, replace=False)  # initial labelled subset
 U0 = np.setdiff1d(train_idx, L0, assume_unique=False)  # remaining 'unlabelled' pool
