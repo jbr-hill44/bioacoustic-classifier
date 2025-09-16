@@ -6,3 +6,4 @@
 *.png
 *.keras
 *.h5
+*checkpoint.ipynb
