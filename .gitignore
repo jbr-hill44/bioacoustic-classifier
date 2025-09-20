@@ -8,4 +8,4 @@
 *.h5
 *checkpoint.ipynb
 *.DS_Store
-*.zipdata/processed/spectrogram_3s/*.zip
+data/processed/spectrogram_3s/*.zip
