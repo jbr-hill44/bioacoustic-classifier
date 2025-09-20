@@ -21,6 +21,14 @@ df = pd.read_csv("/Users/jameshill/PycharmProjects/bioacoustic-classifier/src/da
 df['filepath'] = "/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/spectrogram_3s/" + df['filename'] + ".png"
 df['split_labels'] = df['label'].str.split('_and_')
 
+# PARAMETERS
+rng = np.random.default_rng(1929)
+m0 = 100  # images in initial training round
+b = 20  # samples per batch
+rounds = 45  # number of rounds
+TARGET_TEST = 243
+TARGET_VAL = 200
+
 # Get arrays
 filepaths = df['filepath'].values
 # Initialise and fit multi-label encoder
@@ -61,19 +69,18 @@ def make_ds(filepaths, labels, indices, batch_size, shuffle=False, seed = 1929):
 # This is so images themselves do not need duplicating
 # but instead augmentation will be applied when relevant index occurs
 idx = np.arange(len(filepaths))
-msss = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=243, random_state=1929)
+frac_test = TARGET_TEST / len(filepaths)
+msss = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=frac_test, random_state=1929)
 rest_pos, test_pos = next(msss.split(idx, labels))
 rest_idx = idx[rest_pos]
 test_idx = idx[test_pos]  # Important: This test set will be used in the pretrained version also
 
-train_pos, val_pos = next(msss.split(rest_idx, labels[rest_idx]))   # positions into rest_idx
+msss_val = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=200, random_state=1929)
+train_pos, val_pos = next(msss_val.split(rest_idx, labels[rest_idx]))   # positions into rest_idx
 train_idx = rest_idx[train_pos]   # map back to original indices
 val_idx = rest_idx[val_pos]
 
-rng = np.random.default_rng(1929)
-m0 = 400  # images in initial training round
-b = 80  # samples per batch
-rounds = 10  # number of rounds
+
 
 L0 = rng.choice(train_idx, m0, replace=False)  # initial labelled subset
 U0 = np.setdiff1d(train_idx, L0, assume_unique=False)  # remaining 'unlabelled' pool
@@ -187,13 +194,14 @@ def run_al_experiment(L_init, U_init, rounds, b, seed=1929, batch_size=64, epoch
         'val_macro_f1': [],
         'val_micro_f1': []
     }
+    final_models = {}
+    final_thresholds = {}
 
     # two tracks: active and random
     for method in ['active', 'random']:
         L = L_init.copy()
         U = U_init.copy()
-        final_models = {}
-        final_thresholds = {}
+
         # fresh model per method (fair comparison)
         cnn_model = CNN.define_cnn(mle.classes_)
         # round 0: train on initial L
@@ -254,8 +262,33 @@ df_no_pretraining, final_models_no_pretraining, final_thresholds_no_pretraining 
     L_init=L0, U_init=U0, rounds=rounds, b=b
 )
 
+def plot_learning_curves(df, metric, title):
+    plt.figure(figsize=(7,4))
+    for method, sub in df.groupby("method"):
+        sub = sub.sort_values("n_sampled")
+        plt.plot(sub["n_sampled"], sub[metric], marker="o", label=method.capitalize())
+    plt.xlabel("# labelled samples (|L|)")
+    plt.ylabel(metric.replace("_"," ").title())
+    plt.title(title); plt.grid(True, alpha=0.3); plt.legend(); plt.tight_layout(); plt.show()
 
+plot_learning_curves(df_no_pretraining, 'val_macro_f1', 'Macro F-1 on Fixed Validation Set')
+plot_learning_curves(df_no_pretraining, 'val_micro_f1', 'Micro F-1 on Fixed Validation Set')
 
+from sklearn.metrics import f1_score
+
+# get models
+rand_no_pre = final_models_no_pretraining['random']
+rand_no_pre_thresh = final_thresholds_no_pretraining['random']
+# create predictions
+y_pred = rand_no_pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
+y_pred_bin = (y_pred >= rand_no_pre_thresh).astype(int)
+y_true = labels[test_idx].astype(int)
+
+test_micro = f1_score(y_true, y_pred_bin, labels=np.arange(labels.shape[1]), average='micro')
+test_micro
+
+test_macro = f1_score(y_true, y_pred_bin, labels=np.arange(labels.shape[1]), average='macro')
+test_macro
 
 ##### OLD CODE #####
 

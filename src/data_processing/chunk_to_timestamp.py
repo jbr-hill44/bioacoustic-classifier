@@ -122,16 +122,3 @@ def label_wavs(wav_file, label_dir, annotations):
 for wav in wav_subset:
     label_wavs(wav_file=wav, label_dir=label_dir, annotations=annotations_df)
 
-# Quick and dirty fixes because I am done with regex for now
-old_path = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_271_eurasian_skylark_2_and_unknown_bird_2.wav')
-new_path = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_271_eurasian_skylark_and_unknown_bird_2.wav')
-old_path.rename(new_path)
-old_path1 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_865_unknown_bird_11_12.wav')
-old_path2 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_867_unknown_bird_12_13.wav')
-new_path1 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_865_unknown_bird_11_and_unknown_bird_12.wav')
-new_path2 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_867_unknown_bird_11_and_unknown_bird_12.wav')
-old_path1.rename(new_path1)
-old_path2.rename(new_path2)
-old_path3 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_892_unknown_bird_15_13.wav')
-new_path3 = Path('/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/labelled_chunks_3s/20240611_050000_chunk_892_unknown_bird_15_and_unknown_bird_13.wav')
-old_path3.rename(new_path3)

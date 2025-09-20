@@ -70,7 +70,9 @@ annotations_copy['label'] = annotations_copy['label'].replace({
     'rustling': 'background_noise',
     'unknown_chirping_and_metallic_bang': 'background_noise',
     'rumble': 'background_noise',
-    'dog_barking': 'background_noise'
+    'dog_barking': 'background_noise',
+    'bluetit': 'blackcap',
+    'unknown_bird': 'blackcap'
 })
 
 annotations_copy['label'] = annotations_copy['label'].replace({

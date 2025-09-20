@@ -7,3 +7,4 @@
 *.keras
 *.h5
 *checkpoint.ipynb
+*.DS_Store
