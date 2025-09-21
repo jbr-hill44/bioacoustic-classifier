@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
-from keras import layers
+from tensorflow.keras import layers
 from sklearn.model_selection import train_test_split, ShuffleSplit
 import numpy as np
 
@@ -50,7 +50,7 @@ def build_cae(input_shape=(64,512,1)):
 # These will only be used for pretraining the autoencoder
 from pathlib import Path
 
-folder = Path("/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/spectrogram_3s/unlabelled")
+folder = Path("path/to/unlabelled")
 files = np.array(sorted(str(p) for p in folder.glob("*.png")), dtype=np.str_)
 
 # Split out some validation data for assessing the autoencoder
@@ -79,3 +79,10 @@ plateau_cb = keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5,
                                patience=4, min_lr=1e-5, verbose=1)
 # Fit the model
 cae_history = cae.fit(cae_train_images, epochs=50, validation_data=cae_val_images, callbacks=[callbacks,early_cb,plateau_cb])
+
+cae.save("conv_ae_best.keras", include_optimizer=False)
+enc.save("encoder_best.keras", include_optimizer=False)
+
+# (Optional) also save weights-only files
+cae.save_weights("conv_ae_best.weights.h5")
+enc.save_weights("encoder_best.weights.h5")
