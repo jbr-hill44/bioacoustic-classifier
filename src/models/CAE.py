@@ -62,15 +62,16 @@ cae_val_ds = make_unlabelled_ds(files, unlabelled_val_idx, batch_size=64)
 cae_train_images = cae_train_ds.map(lambda x: (x,x))
 cae_val_images = cae_val_ds.map(lambda x: (x,x))
 
+Path("runs/cae").mkdir(parents=True, exist_ok=True)
+
 cae, enc = build_cae()
 cae.compile(optimizer=keras.optimizers.Adam(1e-3), loss="binary_crossentropy")
-callbacks = [
-    keras.callbacks.ModelCheckpoint(
-        filepath='conv_ae.keras',
+ckpt_cb = keras.callbacks.ModelCheckpoint(
+        filepath='runs/cae/conv_ae.keras',
         save_best_only=True,
         save_weights_only=False,
         monitor='val_loss')
-        ]
+
 # Include early stopping to protect against overfit. Patience is 10 - how many epochs before comparing loss.
 early_cb = keras.callbacks.EarlyStopping(monitor="val_loss", mode="min",
                                          patience=10, restore_best_weights=True, verbose=1)
@@ -78,11 +79,11 @@ early_cb = keras.callbacks.EarlyStopping(monitor="val_loss", mode="min",
 plateau_cb = keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5,
                                patience=4, min_lr=1e-5, verbose=1)
 # Fit the model
-cae_history = cae.fit(cae_train_images, epochs=50, validation_data=cae_val_images, callbacks=[callbacks,early_cb,plateau_cb])
+cae_history = cae.fit(cae_train_images, epochs=50, validation_data=cae_val_images, callbacks=[ckpt_cb,early_cb,plateau_cb])
 
-cae.save("conv_ae_best.keras", include_optimizer=False)
-enc.save("encoder_best.keras", include_optimizer=False)
+cae.save("runs/cae/conv_ae_best.keras", include_optimizer=False)
+enc.save("runs/cae/encoder_best.keras", include_optimizer=False)
 
 # (Optional) also save weights-only files
-cae.save_weights("conv_ae_best.weights.h5")
-enc.save_weights("encoder_best.weights.h5")
+cae.save_weights("runs/cae/conv_ae_final.weights.h5")
+enc.save_weights("runs/cae/encoder_final.weights.h5")
