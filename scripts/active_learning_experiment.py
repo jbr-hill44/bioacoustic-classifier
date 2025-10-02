@@ -1,5 +1,8 @@
+# This script runs the experiments.
+# It will pull and perform the test/ train split on the labelled data.
+# It then performs the active learning experiment, with and without pretraining.
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('MacOSX')
 import matplotlib.pyplot as plt
 import pandas as pd
 import tensorflow as tf
@@ -7,7 +10,7 @@ tf.keras.backend.clear_session()
 from tensorflow import keras
 import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import recall_score, f1_score, precision_score, hamming_loss
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 import src.data_processing.data_augmentation as daug
 import src.data_processing.imbalance_metrics as imb
@@ -15,11 +18,18 @@ from importlib import reload
 import src.models.CNN as CNN
 reload(CNN)
 from src.models.active_learning_kcluster import kCenterGreedy
+import gdown
+import os
 
 # Read in data
 df = pd.read_csv("/Users/jameshill/PycharmProjects/bioacoustic-classifier/src/data/annotations/spectrogram_labels.csv")
 df['filepath'] = "/Users/jameshill/PycharmProjects/bioacoustic-classifier/data/processed/spectrogram_3s/" + df['filename'] + ".png"
 df['split_labels'] = df['label'].str.split('_and_')
+
+# Load Autoencoder model from Google Drive
+os.makedirs("src/models", exist_ok=True)
+url = "https://drive.google.com/file/d/1XWiqBNZS5PpldarwKCfspGk3PRWk_akH/view?usp=drive_link"
+gdown.download(url=url, output="src/models/encoder_final.keras", fuzzy=True)
 
 # PARAMETERS
 rng = np.random.default_rng(1929)
@@ -36,8 +46,27 @@ mle = MultiLabelBinarizer()
 # Create multi-hot encodings
 multi_labels = mle.fit_transform(df['split_labels'])
 labels = multi_labels
-cnn = CNN.define_cnn(mle.classes_)
-assert cnn.output_shape[-1] == len(mle.classes_)
+
+# Define classification head for loaded encoder.
+# This works as the encoder has been defined to match the convolutional layers of the CNN
+def build_classifier_from_encoder(encoder_path: str, classes, input_shape=(64,512,1), freeze_encoder: bool = True):
+    num_classes = len(classes)
+
+    encoder = keras.models.load_model(encoder_path)
+    encoder.trainable = not freeze_encoder
+
+    inputs = keras.Input(shape=input_shape)
+    z = encoder(inputs)
+    z = keras.layers.GlobalAveragePooling2D()(z)
+    z = keras.layers.Dropout(0.5)(z)
+    z = keras.layers.Dense(128, activation="relu", kernel_regularizer=keras.regularizers.l2(1e-4),
+                           name='embed_dense')(z)
+    z = keras.layers.Dropout(0.4)(z)
+    outputs = keras.layers.Dense(num_classes, activation="sigmoid")(z)
+    model = keras.Model(inputs=inputs, outputs=outputs)
+    return model
+
+
 # Only needed if using data augmentation
 def make_train_ds(filepaths, labels, indices, flags, batch_size=32, seed=1929):
     idx = np.asarray(indices, dtype=int)
@@ -98,6 +127,7 @@ def create_training_set(model, train_idx, val_idx, epochs=10, batch_size=64):
 
     # Create irlbl values and associated weights for weighting and tuning
     train_irlbl, irlbl_weights = imb.compute_irlbl_and_weights(y_train, power=0.5)
+    irlbl_weights = np.minimum(irlbl_weights, 10.0)
 
     # Define training metric - what we'll track during training
     pr = keras.metrics.AUC(
@@ -123,8 +153,12 @@ def create_training_set(model, train_idx, val_idx, epochs=10, batch_size=64):
     macro_f1, micro_f1, _ = imb.evaluate_f1s(y_val, y_prob_val, thresholds)
     print("y_prob_val stats: min", y_prob_val.min(), "max", y_prob_val.max(),
           "mean", y_prob_val.mean(), flush=True)
+    # Print out macro and micro f1 scores for if the threshold was fixed at 0.5
+    macro_f1_fixed, micro_f1_fixed, _ = imb.evaluate_f1s(y_val, y_prob_val,
+                                                         np.full(y_val.shape[1], 0.5))
+    print("Fixed-0.5 F1 macro/micro:", macro_f1_fixed, micro_f1_fixed)
 
-    # how many probs exceed the *tuned* thresholds?
+    # how many probs exceed the tuned thresholds?
     y_hat_val = (y_prob_val >= thresholds[None, :]).astype(int)
     print("Any positives predicted on val? ", y_hat_val.sum() > 0,
           "| total positives predicted:", y_hat_val.sum(), flush=True)
@@ -143,13 +177,22 @@ def get_embeddings(model, pool_idx, batch_size=64):
     pool_idx = np.asarray(pool_idx, dtype=int)
     if pool_idx.size == 0:
         # return a correctly-shaped empty array
-        embed_dim = model.layers[-2].output_shape[-1]
+        embed_dim = model.get_layer('embed_dense').output_shape[-1]
         return np.empty((0, embed_dim), dtype=np.float32)
 
-    embed_model = keras.Model(inputs=model.input, outputs=model.layers[-2].output)
+    embed_model = keras.Model(inputs=model.input, outputs=model.get_layer('embed_dense').output)
     pool_x = make_input_ds(filepaths, pool_idx, batch_size=batch_size)  # IMAGES ONLY
     return embed_model.predict(pool_x, verbose=0)
 
+# We do not want the exact same instance of either model used for both active and random conditions
+# Define model factories to return new models
+def fresh_baseline_model():
+    # brand-new scratch CNN each time this is called
+    return CNN.define_cnn(mle.classes_)
+
+def fresh_pretrained_model():
+    # brand-new encoder+head each time this is called
+    return build_classifier_from_encoder("src/models/encoder_final.keras", mle.classes_, freeze_encoder=False)
 
 # kCenterGreedy was built to expect scikit-learn models, which have a transform(x) method
 # We have embeddings as per get_embeddings and do not need to manually map them
@@ -183,7 +226,7 @@ def make_input_ds(filepaths, indices, batch_size=64):
     return ds
 
 
-def run_al_experiment(L_init, U_init, rounds, b, seed=1929, batch_size=64, epochs=10):
+def run_al_experiment(L_init, U_init, rounds, b, model_factory, seed=1929, batch_size=64, epochs=10):
     rng = np.random.default_rng(seed)
 
     # containers
@@ -203,7 +246,7 @@ def run_al_experiment(L_init, U_init, rounds, b, seed=1929, batch_size=64, epoch
         U = U_init.copy()
 
         # fresh model per method (fair comparison)
-        cnn_model = CNN.define_cnn(mle.classes_)
+        cnn_model = model_factory()
         # round 0: train on initial L
         # 1) train on L, tune thresholds on V
         model, thresholds, metrics = create_training_set(
@@ -258,10 +301,17 @@ def run_al_experiment(L_init, U_init, rounds, b, seed=1929, batch_size=64, epoch
     out = pd.DataFrame(results)
     return out, final_models, final_thresholds
 
-df_no_pretraining, final_models_no_pretraining, final_thresholds_no_pretraining = run_al_experiment(
-    L_init=L0, U_init=U0, rounds=rounds, b=b
+# Pretraining
+df_pretraining, final_models_pretraining, final_thresholds_pretraining = run_al_experiment(
+    L_init=L0, U_init=U0, rounds=rounds, b=b, model_factory=fresh_pretrained_model
 )
 
+# No pretraining
+df_no_pretraining, final_models_no_pretraining, final_thresholds_no_pretraining = run_al_experiment(
+    L_init=L0, U_init=U0, rounds=rounds, b=b, model_factory=fresh_baseline_model
+)
+
+# Evaluation/ examining performance
 def plot_learning_curves(df, metric, title):
     plt.figure(figsize=(7,4))
     for method, sub in df.groupby("method"):
@@ -274,156 +324,112 @@ def plot_learning_curves(df, metric, title):
 plot_learning_curves(df_no_pretraining, 'val_macro_f1', 'Macro F-1 on Fixed Validation Set')
 plot_learning_curves(df_no_pretraining, 'val_micro_f1', 'Micro F-1 on Fixed Validation Set')
 
-from sklearn.metrics import f1_score
+def f1_eval_on_test(model):
+    y_true = labels[test_idx].astype(int)
 
-# get models
-rand_no_pre = final_models_no_pretraining['random']
-rand_no_pre_thresh = final_thresholds_no_pretraining['random']
-# create predictions
-y_pred = rand_no_pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
-y_pred_bin = (y_pred >= rand_no_pre_thresh).astype(int)
-y_true = labels[test_idx].astype(int)
+    no_pre = final_models_no_pretraining[model]
+    pre = final_models_pretraining[model]
 
-test_micro = f1_score(y_true, y_pred_bin, labels=np.arange(labels.shape[1]), average='micro')
-test_micro
+    no_pre_thresh = final_thresholds_no_pretraining[model]
+    pre_thresh = final_thresholds_pretraining[model]
 
-test_macro = f1_score(y_true, y_pred_bin, labels=np.arange(labels.shape[1]), average='macro')
-test_macro
+    y_pred_no_pre = no_pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
+    y_pred_pre = pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
 
-##### OLD CODE #####
+    y_bin_no_pre = (y_pred_no_pre >= no_pre_thresh).astype(int)
+    y_bin_pre = (y_pred_pre >= pre_thresh).astype(int)
 
-# def run_al_experiment(L_init, U_init, V, rounds, b, model, seed=1929, batch_size=64, epochs=10):
-#     rng = np.random.default_rng(seed)
-#     L = np.array(L_init, dtype=int)
-#     U = np.array(U_init, dtype=int)
-#
-#     results = {
-#         "round": [], "n_labelled": [],
-#         "val_macro_f1": [], "val_micro_f1": [],
-#     }
-#     thresholds_per_round = []
-#
-#     for r in range(rounds):
-#         print(f"\n=== Round {r+1}/{rounds} | L={len(L)} | U={len(U)} ===")
-#
-#         # 1) train on L, tune thresholds on V
-#         model, thresholds, metrics = create_training_set(
-#             model=model, train_idx=L, val_idx=V, batch_size=batch_size, epochs=epochs
-#         )
-#
-#         print(f"[Val] F1-macro: {metrics['val_macro_f1']:.3f} | F1-micro: {metrics['val_micro_f1']:.3f}")
-#         thresholds_per_round.append(thresholds)
-#         results["round"].append(r+1)
-#         results["n_labelled"].append(len(L))
-#         results["val_macro_f1"].append(metrics["val_macro_f1"])
-#         results["val_micro_f1"].append(metrics["val_micro_f1"])
-#
-#         if r == rounds - 1 or len(U) == 0:
-#             break  # done
-#
-#         # 2) select next batch from U via k-centre on embeddings
-#         Z_U = get_embeddings(model, U, batch_size=batch_size)
-#
-#         # already_selected_local are indices within U that correspond to L's “centres”
-#         already_selected_local = np.array([], dtype=int)
-#         batch_local = select_kcenter_batch(Z_U, already_selected_local, b=b, metric='euclidean')
-#         batch_global = U[batch_local]
-#
-#         # 3) update pools
-#         L = np.union1d(L, batch_global)
-#         U = np.setdiff1d(U, batch_global, assume_unique=False)
-#
-#     return results, thresholds_per_round, model
-# df_res = run_al_experiment(L0, U0, rounds, b)
-#
-# plt.figure(figsize=(7, 4))
-# for method in ['active', 'random']:
-#     d = df_res[df_res['method'] == method].sort_values('n_sampled')
-#     plt.plot(d['n_sampled'], d['val_auc_roc'], marker='o', label=method)
-# plt.xlabel('# labeled samples')
-# plt.ylabel('Val AUC-ROC')
-# plt.title('Learning curves')
-# plt.legend()
-# plt.grid(True, alpha=0.3)
-# plt.show()
-#
-# epoch_idx, epoch_flag = daug.upsample_rare(train_labels=labels, train_idx=train_idx)
-# train_ds = make_ds(filepaths, labels, epoch_idx, epoch_flag, batch_size=32)
-# model = CNN.define_cnn(mle.classes_)
-# model_all = create_training_set(model=model,
-#                                 train_idx=train_idx,
-#                                 val_idx=val_idx,
-#                                 epochs=20)
-#
-#
-# auc_pr = model_all.history['auc_pr']
-# val_auc_pr = model_all.history['val_auc_pr']
-# epochs = range(1, len(auc_pr) + 1)
-#
-# plt.plot(epochs, auc_pr, 'bo', label="Training AUC-PR")
-# plt.plot(epochs, val_auc_pr, 'b', label="Validation AUC-PR")
-# plt.title("Training and Validation AUC-PR")
-# plt.legend()
-# plt.show()
-#
-# y_true = labels[val_idx].astype('float32')
-# y_pred = model.predict(make_input_ds(filepaths, val_idx), verbose=0)
-#
-# # Restrict to classes with both pos & neg in val (optional but safer)
-# valid = (y_true.sum(axis=0) > 0) & ((y_true == 0).sum(axis=0) > 0)
-# yt, yp = y_true[:, valid], y_pred[:, valid]
-#
-# # PR-AUCs
-# ap_macro = average_precision_score(yt, yp, average='macro')
-# ap_weighted = average_precision_score(yt, yp, average='weighted')  # weights by class support
-# ap_micro = average_precision_score(yt, yp, average='micro')
-# print(f"AP macro={ap_macro:.3f} | AP weighted={ap_weighted:.3f} | AP micro={ap_micro:.3f}")
-#
-# # Hamming loss metrics
-# threshold = 0.4  # tune this
-# yp_binary = (yp >= threshold).astype(int)
-# from sklearn.metrics import hamming_loss
-# hamming = hamming_loss(yt, yp_binary)
-# print(f"Hamming Loss={hamming:.3f}")
-#
-#
-# import numpy as np
-# from sklearn.metrics import average_precision_score
-#
-# # yt, yp from your last cell (restricted to valid classes)
-# nC = yt.shape[1]
-#
-# per_ap = np.zeros(nC)
-# pos_pred_rate_05 = np.zeros(nC)   # fraction predicted positive at 0.5
-# mean_prob = np.zeros(nC)          # average predicted probability
-# best_f1 = np.zeros(nC)
-# best_thr = np.zeros(nC)
-#
-# for c in range(nC):
-#     y, p = yt[:, c], yp[:, c]  # take all rows, for each column (class)
-#     per_ap[c] = average_precision_score(y, p)
-#     mean_prob[c] = float(p.mean())
-#
-#     # default 0.5 threshold: how often does model predict positive?
-#     pos_pred_rate_05[c] = float((p >= 0.5).mean())
-#
-# # Map these back to class names you evaluated (the 'valid' subset)
-# valid_classes = np.array(list(mle.classes_))[valid]
-# summary = np.c_[per_ap, mean_prob, pos_pred_rate_05, best_f1, best_thr]
-# idx_sorted = np.argsort(-per_ap)  # best first
-# for i in idx_sorted[:nC]:
-#     print(f"{valid_classes[i]:30s} AP={per_ap[i]:.3f}  mean_p={mean_prob[i]:.3f}  "
-#           f"pos@0.5={pos_pred_rate_05[i]:.3f}  bestF1={best_f1[i]:.3f}@thr={best_thr[i]:.2f}")
-#
-#
-# hamming = np.zeros(nC)
-# for c in range(nC):
-#     y, p = yt[:, c], yp[:, c]  # take all rows, for each column (class)
-#     hamming[c] = hamming_loss(y, (p >= threshold).astype(int))
-#
-# # Map these back to class names you evaluated (the 'valid' subset)
-# valid_classes = np.array(list(mle.classes_))[valid]
-# summary = np.c_[hamming]
-# for i in idx_sorted[:nC]:
-#     print(f"{valid_classes[i]:30s}"
-#           f"Hamming={hamming[i]}")
+    f1_micro_no_pretrain = f1_score(y_true, y_bin_no_pre, labels=np.arange(labels.shape[1]), average='micro')
+    f1_macro_no_pretrain = f1_score(y_true, y_bin_no_pre, labels=np.arange(labels.shape[1]), average='macro')
+    f1_micro_pretrain = f1_score(y_true, y_bin_pre, labels=np.arange(labels.shape[1]), average='micro')
+    f1_macro_pretrain = f1_score(y_true, y_bin_pre, labels=np.arange(labels.shape[1]), average='macro')
+
+    return (f"Micro F1 No Pretrain: {f1_micro_no_pretrain} | Macro F1 No Pretrain: {f1_macro_no_pretrain} "
+            f"| Micro F1 Pretrain: {f1_micro_pretrain} | Macro F1 Pretrain: {f1_macro_pretrain}")
+
+
+def recall_eval_on_test(model):
+    y_true = labels[test_idx].astype(int)
+
+    no_pre = final_models_no_pretraining[model]
+    pre = final_models_pretraining[model]
+
+    no_pre_thresh = final_thresholds_no_pretraining[model]
+    pre_thresh = final_thresholds_pretraining[model]
+
+    y_pred_no_pre = no_pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
+    y_pred_pre = pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
+
+    y_bin_no_pre = (y_pred_no_pre >= no_pre_thresh).astype(int)
+    y_bin_pre = (y_pred_pre >= pre_thresh).astype(int)
+
+    recall_micro_no_pretrain = recall_score(y_true, y_bin_no_pre, labels=np.arange(labels.shape[1]), average='micro')
+    recall_macro_no_pretrain = recall_score(y_true, y_bin_no_pre, labels=np.arange(labels.shape[1]), average='macro')
+    recall_micro_pretrain = recall_score(y_true, y_bin_pre, labels=np.arange(labels.shape[1]), average='micro')
+    recall_macro_pretrain = recall_score(y_true, y_bin_pre, labels=np.arange(labels.shape[1]), average='macro')
+
+    return (f"Micro Recall No Pretrain: {recall_micro_no_pretrain} | Macro Recall No Pretrain: {recall_macro_no_pretrain} "
+            f"| Micro Recall Pretrain: {recall_micro_pretrain} | Macro Recall Pretrain: {recall_macro_pretrain}")
+
+recall_eval_on_test('active')
+
+def precision_eval_on_test(model):
+    y_true = labels[test_idx].astype(int)
+
+    no_pre = final_models_no_pretraining[model]
+    pre = final_models_pretraining[model]
+
+    no_pre_thresh = final_thresholds_no_pretraining[model]
+    pre_thresh = final_thresholds_pretraining[model]
+
+    y_pred_no_pre = no_pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
+    y_pred_pre = pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
+
+    y_bin_no_pre = (y_pred_no_pre >= no_pre_thresh).astype(int)
+    y_bin_pre = (y_pred_pre >= pre_thresh).astype(int)
+
+    prec_micro_no_pretrain = precision_score(y_true, y_bin_no_pre, labels=np.arange(labels.shape[1]), average='micro')
+    prec_macro_no_pretrain = precision_score(y_true, y_bin_no_pre, labels=np.arange(labels.shape[1]), average='macro')
+    prec_micro_pretrain = precision_score(y_true, y_bin_pre, labels=np.arange(labels.shape[1]), average='micro')
+    prec_macro_pretrain = precision_score(y_true, y_bin_pre, labels=np.arange(labels.shape[1]), average='macro')
+
+    return (f"Micro Precision No Pretrain: {prec_micro_no_pretrain} | Macro Precision No Pretrain: {prec_macro_no_pretrain} "
+            f"| Micro Precision Pretrain: {prec_micro_pretrain} | Macro Precision Pretrain: {prec_macro_pretrain}")
+
+
+def hamming_eval_on_test(model):
+    y_true = labels[test_idx].astype(int)
+
+    no_pre = final_models_no_pretraining[model]
+    pre = final_models_pretraining[model]
+
+    no_pre_thresh = final_thresholds_no_pretraining[model]
+    pre_thresh = final_thresholds_pretraining[model]
+
+    y_pred_no_pre = no_pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
+    y_pred_pre = pre.predict(make_input_ds(filepaths, test_idx), verbose=0)
+
+    y_bin_no_pre = (y_pred_no_pre >= no_pre_thresh).astype(int)
+    y_bin_pre = (y_pred_pre >= pre_thresh).astype(int)
+
+    hamming_no_pretrain = hamming_loss(y_true, y_bin_no_pre)
+    hamming_pretrain = hamming_loss(y_true, y_bin_pre)
+
+    return (f"Hamming No Pretrain: {hamming_no_pretrain}"
+            f"| Hamming Pretrain: {hamming_pretrain}")
+
+def per_class_metrics (model, pretrain=True):
+    if pretrain:
+        model = final_models_pretraining[model]
+        thresholds = final_thresholds_pretraining[model]
+    else:
+        model = final_models_no_pretraining[model]
+        thresholds = final_thresholds_no_pretraining[model]
+    test_ds = make_ds(filepaths, labels, test_idx, batch_size=64)
+    y_true_test = labels[test_idx]
+    y_prob_test = model.predict(test_ds, verbose=0)
+    y_pred_test = (y_prob_test >= thresholds[None, :]).astype(int)
+    per_class_f1 = precision_score(y_true_test, y_pred_test, average=None, zero_division=0)
+    per_class_f1_dict = dict(zip(mle.classes_, per_class_f1))
+    for cls, f1 in per_class_f1_dict.items():
+        print(f"{cls}: {f1:.3f}")

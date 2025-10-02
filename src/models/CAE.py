@@ -33,7 +33,7 @@ def conv_encoder(input_shape=(64,512,1)):
 
 def build_cae(input_shape=(64,512,1)):
     enc = conv_encoder(input_shape)
-    z   = enc.output                     # (8,64,256)
+    z = enc.output                     # (8,64,256)
 
     x = layers.UpSampling2D((2,2))(z)    # 16x128
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
@@ -50,7 +50,7 @@ def build_cae(input_shape=(64,512,1)):
 # These will only be used for pretraining the autoencoder
 from pathlib import Path
 
-folder = Path("path/to/unlabelled")
+folder = Path("data/processed/spectrogram_3s/unlabelled")
 files = np.array(sorted(str(p) for p in folder.glob("*.png")), dtype=np.str_)
 
 # Split out some validation data for assessing the autoencoder
@@ -79,11 +79,11 @@ early_cb = keras.callbacks.EarlyStopping(monitor="val_loss", mode="min",
 plateau_cb = keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5,
                                patience=4, min_lr=1e-5, verbose=1)
 # Fit the model
-cae_history = cae.fit(cae_train_images, epochs=50, validation_data=cae_val_images, callbacks=[ckpt_cb,early_cb,plateau_cb])
+cae_history = cae.fit(cae_train_images, epochs=0, validation_data=cae_val_images, callbacks=[ckpt_cb,early_cb,plateau_cb])
 
-cae.save("runs/cae/conv_ae_best.keras", include_optimizer=False)
-enc.save("runs/cae/encoder_best.keras", include_optimizer=False)
+cae.save("runs/cae/conv_ae_final_0.keras", include_optimizer=False)
+enc.save("runs/cae/encoder_final_0.keras", include_optimizer=False)
 
 # (Optional) also save weights-only files
-cae.save_weights("runs/cae/conv_ae_final.weights.h5")
-enc.save_weights("runs/cae/encoder_final.weights.h5")
+cae.save_weights("runs/cae/conv_ae_final_0.weights.h5")
+enc.save_weights("runs/cae/encoder_final_0.weights.h5")

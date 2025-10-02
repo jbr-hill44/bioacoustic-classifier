@@ -20,7 +20,8 @@ def define_cnn(classes, input_shape = (64, 512, 1)):
                       kernel_regularizer=keras.regularizers.l2(1e-4))(x)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.5)(x)
-    x = layers.Dense(128, activation="relu", kernel_regularizer=keras.regularizers.l2(1e-4))(x)
+    x = layers.Dense(128, activation="relu", kernel_regularizer=keras.regularizers.l2(1e-4),
+                     name='embed_dense')(x)
     x = layers.Dropout(0.4)(x)
     outputs = layers.Dense(num_classes, activation="sigmoid")(x)
     model = keras.Model(inputs=inputs, outputs=outputs)

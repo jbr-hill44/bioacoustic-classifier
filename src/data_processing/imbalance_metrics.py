@@ -4,11 +4,6 @@ from sklearn.metrics import f1_score
 
 
 def compute_irlbl_and_weights(y_train, power=0.5, eps=1e-6):
-    """
-    IRLbl[c] = max_pos / pos_c  (Sampaio et al.)
-    Convert IRLbl -> positive-class weights via a soft power (default sqrt)
-    and normalize to mean 1 so loss scale stays reasonable.
-    """
     pos_per_label = y_train.sum(axis=0).astype(float) + eps
     max_pos = pos_per_label.max()
     irlbl = max_pos / pos_per_label
@@ -19,10 +14,6 @@ def compute_irlbl_and_weights(y_train, power=0.5, eps=1e-6):
 
 
 def bce_with_positive_weights(alpha_pos):
-    """
-    alpha_pos: 1D numpy or list of length C (per-class positive weights).
-    Assumes model outputs sigmoid probabilities (from_logits=False).
-    """
     alpha_pos = tf.constant(alpha_pos, dtype=tf.float32)
     def loss_fn(y_true, y_pred):
         y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
@@ -60,13 +51,6 @@ def evaluate_f1s(y_true, y_prob, thresholds):
 
 
 def compute_scumble_per_instance(Y, irlbl, eps=1e-12):
-    """
-    SCUMBLE_i = 1 - (G_i / A_i), where
-      A_i = arithmetic mean of IRLbl over labels present in instance i
-      G_i = geometric mean of IRLbl over labels present in instance i
-    For single-label instances, G_i == A_i -> SCUMBLE_i = 0.
-    For instances with no positive labels, returns np.nan (ignored in dataset mean).
-    """
     N, C = Y.shape
     scumble_i = np.full(N, np.nan, dtype=float)
 
@@ -85,13 +69,6 @@ def compute_scumble_per_instance(Y, irlbl, eps=1e-12):
     return scumble_i  # shape: (N,)
 
 def compute_scumble(Y):
-    """
-    Convenience wrapper: returns
-      - irlbl (per-label)
-      - scumble_i (per-instance)
-      - scumble (dataset mean over defined instances)
-      - scumble_cv (coefficient of variation over defined instances)
-    """
     irlbl, w = compute_irlbl_and_weights(Y)
     scumble_i = compute_scumble_per_instance(Y, irlbl)
     scumble = np.nanmean(scumble_i)
