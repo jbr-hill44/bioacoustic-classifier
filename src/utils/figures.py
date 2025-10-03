@@ -1,5 +1,3 @@
-import pandas as pd
-import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np
 def plot_learning_curves(df, metric, title, file):
